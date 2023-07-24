@@ -1,10 +1,8 @@
 FROM node:18-alpine3.17
-
-COPY package.json package.json
-COPY package-lock.json package-lock.json
-
 RUN mkdir /app && cd /app
-# Install required node dependencies
-RUN npm ci
+WORKDIR /app
+RUN mkdir iexec_out
+RUN npm install ethers
+RUN npm install fs
 COPY ./src /app
 ENTRYPOINT [ "node", "/app/app.js"]

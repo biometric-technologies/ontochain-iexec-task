@@ -1,51 +1,56 @@
-const { JsonRpcProvider, Wallet, Contract } = require("ethers");
-const contractAbi = require("./contractAbi");
+const ethers = require("ethers");
+const fs = require("fs").promises;
+
+const iexecOut = process.env.IEXEC_OUT;
+const callbackFilePath = `${iexecOut}/callback.txt`;
+const errorFilePath = `${iexecOut}/error.txt`;
 
 const argsList = process.argv.slice(2);
+const [rpc, getInfoLink] = argsList;
 
-const [privateKey, rpc, contractAddress, ...hashes] = argsList;
-
-const writeToContract = async () => {
+(async () => {
   try {
-    //create chain signer
-    const provider = new JsonRpcProvider(rpc);
-    const wallet = new Wallet(privateKey, provider);
+    const result = await fetch(getInfoLink, {
+      method: "GET",
+    });
 
-    //create contract instance
-    const contract = new Contract(
-      contractAddress,
-      contractAbi.contractAbi,
-      wallet
+    const calldata = await result.text();
+
+    const provider = new ethers.JsonRpcProvider(rpc);
+
+    const broadcasted = await provider.broadcastTransaction(calldata);
+    const tx = await broadcasted.wait();
+
+    await fs.appendFile(
+      callbackFilePath,
+      `${new Date().toISOString()}:${JSON.stringify(tx)}\n`
     );
 
-    //check is pushed info about hash
-    const checkedHashes = await Promise.all(
-      hashes.map(async (hash) => {
-        try {
-          const info = await contract.getHashInfo(hash);
-          if (info) {
-            return null;
-          } else {
-            return hash;
-          }
-        } catch (error) {
-          return hash;
-        }
-      })
+    const computedJsonObj = {
+      "deterministic-output-path": `${callbackFilePath}`,
+    };
+
+    await fs.appendFile(
+      `${iexecOut}/computed.json`,
+      JSON.stringify(computedJsonObj)
     );
-
-    //filter only not pushed hashes
-    const validHashes = checkedHashes.filter((hash) => !!hash);
-
-    if (validHashes.length) {
-      //save info into contract
-      const tx = await contract.saveHashes(validHashes);
-      await tx.wait();
-    }
   } catch (e) {
     console.error(e);
+    await fs.appendFile(
+      errorFilePath,
+      `${new Date().toISOString()}:${e.toString()}\n`,
+      (error) => {
+        console.error(error);
+      }
+    );
+    const computedJsonObj = {
+      "deterministic-output-path": `${errorFilePath}`,
+    };
+
+    await fs.appendFile(
+      `${iexecOut}/computed.json`,
+      JSON.stringify(computedJsonObj)
+    );
     process.exit(1);
   }
-};
-
-writeToContract();
+})();
